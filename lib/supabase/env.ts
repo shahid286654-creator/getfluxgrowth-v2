@@ -1,15 +1,33 @@
 /**
- * A trailing slash on NEXT_PUBLIC_SUPABASE_URL (or stray whitespace/
- * newline from a copy-paste into a dashboard env var field) produces a
- * double slash when the auth client appends `/auth/v1/token` etc,
- * e.g. `https://xxx.supabase.co//auth/v1/token`. Supabase's gateway
- * rejects that path outright ("Invalid path specified in request
- * URL") instead of 404ing cleanly, which surfaces as a login failure
- * that looks unrelated to the URL itself. Normalize before use so a
- * cosmetically-correct env var value can't trigger it.
+ * @supabase/supabase-js appends `/auth/v1`, `/rest/v1`, etc itself, so
+ * NEXT_PUBLIC_SUPABASE_URL must be the bare project origin. Two easy
+ * mistakes both corrupt the request path instead of just 404ing:
+ *
+ * - A trailing slash produces a double slash, e.g.
+ *   `https://xxx.supabase.co//auth/v1/token`.
+ * - Pasting a sub-service URL from Supabase's API settings page (e.g.
+ *   `https://xxx.supabase.co/auth/v1`, shown right next to the plain
+ *   project URL) makes the SDK append its own `/auth/v1` on top of
+ *   that, producing `https://xxx.supabase.co/auth/v1/auth/v1/token`.
+ *
+ * Either way Supabase's gateway rejects the path outright ("Invalid
+ * path specified in request URL") rather than returning a normal
+ * 404, which surfaces as an opaque login failure. Collapsing to
+ * `new URL(...).origin` discards any path/query/hash so a
+ * cosmetically-plausible env var value can't trigger either case.
  */
 function normalizeSupabaseUrl(rawUrl: string): string {
-  return rawUrl.trim().replace(/\/+$/, "");
+  const trimmed = rawUrl.trim();
+
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    throw new Error(
+      `Invalid NEXT_PUBLIC_SUPABASE_URL: "${trimmed}" is not a valid URL. ` +
+        "It must be your bare Supabase project URL, e.g. https://xxxxx.supabase.co " +
+        "-- with no /auth/v1, /rest/v1, or trailing path."
+    );
+  }
 }
 
 /**
