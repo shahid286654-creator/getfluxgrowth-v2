@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Gauge, Search as SearchIcon, Activity as ActivityIcon } from "lucide-react";
+import { Search as SearchIcon, Activity as ActivityIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { TabShell, type TabShellItem } from "@/components/shared/tab-shell";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ScoreCard } from "@/components/shared/score-card";
 import { ActivityFeedItem } from "@/components/shared/activity-feed-item";
 import { Card, CardContent } from "@/components/ui/card";
-import { AUDIT_CATEGORY_CONFIG } from "@/lib/constants/audit-categories";
 import { SEO_AUDIT_CATEGORY_CONFIG } from "@/lib/constants/seo-audit-categories";
 import { LeadDetailHeader } from "./lead-detail-header";
 import { LeadNotesPanel } from "./lead-notes-panel";
 import { LeadOutreachPanel } from "./lead-outreach-panel";
 import { LeadOpportunitiesPanel } from "./lead-opportunities-panel";
+import { WebsiteAuditPanel } from "./website-audit-panel";
 
 export const metadata: Metadata = { title: "Lead" };
 
@@ -96,30 +96,9 @@ export default async function LeadDetailPage({
     {
       value: "website-audit",
       label: "Website Audit",
-      content:
-        audits && audits.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {audits.map((audit) => {
-              const config = AUDIT_CATEGORY_CONFIG[audit.category];
-              return (
-                <ScoreCard
-                  key={audit.id}
-                  icon={config.icon}
-                  label={config.label}
-                  score={audit.score}
-                  status={audit.status}
-                  summary={audit.summary}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState
-            icon={Gauge}
-            title="No website audit yet"
-            description="Website audit scores for this lead will appear here once generated."
-          />
-        ),
+      content: (
+        <WebsiteAuditPanel leadId={lead.id} websiteUrl={lead.website} audits={audits ?? []} />
+      ),
     },
     {
       value: "seo-audit",
