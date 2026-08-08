@@ -10,12 +10,12 @@ import {
 } from "@/components/shared/data-table/data-table";
 import { DataTableToolbar } from "@/components/shared/data-table/data-table-toolbar";
 import { DataTablePagination } from "@/components/shared/data-table/data-table-pagination";
-import { LeadStatusBadge, PipelineStageBadge } from "@/components/shared/status-badge";
 import { LEAD_STATUS_CONFIG } from "@/lib/constants/status";
 import { PIPELINE_STAGE_CONFIG } from "@/lib/constants/pipeline";
 import { formatDate } from "@/lib/utils/format";
 import { LeadsPageActions } from "./leads-page-actions";
 import { LeadRowActions } from "./lead-row-actions";
+import { LeadStatusCell, LeadStageCell } from "./lead-inline-cell";
 import type { Lead, LeadStatus, PipelineStage } from "@/types";
 
 const PAGE_SIZE = 20;
@@ -75,12 +75,12 @@ export default async function LeadsPage({
     {
       key: "status",
       header: "Status",
-      render: (lead) => <LeadStatusBadge status={lead.status} />,
+      render: (lead) => <LeadStatusCell lead={lead} />,
     },
     {
       key: "stage",
       header: "Stage",
-      render: (lead) => <PipelineStageBadge stage={lead.pipeline_stage} />,
+      render: (lead) => <LeadStageCell lead={lead} />,
     },
     { key: "source", header: "Source", render: (lead) => lead.source },
     {
