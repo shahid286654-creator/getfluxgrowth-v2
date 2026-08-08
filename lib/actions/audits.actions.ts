@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { auditSchema } from "@/lib/validations/audits";
+import { auditSchema, runAuditSchema } from "@/lib/validations/audits";
 import { AUDIT_CATEGORY_CONFIG } from "@/lib/constants/audit-categories";
-import type { AuditCategory, ScoreStatus } from "@/types";
+import { runPageSpeedAudit } from "@/lib/audit/pagespeed";
+import type { AuditCategory, Json, ScoreStatus } from "@/types";
 
 export type AuditActionState = { error?: string; success?: boolean };
 
@@ -13,6 +14,31 @@ function deriveStatus(score: number | null): ScoreStatus {
   if (score >= 80) return "good";
   if (score >= 50) return "needs_improvement";
   return "poor";
+}
+
+function getDetailsUrl(details: unknown): string | null {
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const url = (details as { url?: unknown }).url;
+    return typeof url === "string" ? url : null;
+  }
+  return null;
+}
+
+async function logAuditActivity(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  leadId: string,
+  actorId: string | null,
+  description: string,
+  metadata: Json
+) {
+  // audit_completed has no DB trigger -- log it here, mirroring status_changed in leads.actions.ts.
+  await supabase.from("activities").insert({
+    lead_id: leadId,
+    actor_id: actorId,
+    type: "audit_completed",
+    description,
+    metadata,
+  });
 }
 
 export async function upsertAudit(
@@ -41,6 +67,16 @@ export async function upsertAudit(
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Preserve the audited URL recorded by a previous automated run (if any)
+  // instead of dropping it when a human edits the score/summary by hand.
+  const { data: existing } = await supabase
+    .from("audits")
+    .select("details")
+    .eq("lead_id", leadId)
+    .eq("category", category)
+    .maybeSingle();
+  const existingUrl = getDetailsUrl(existing?.details);
+
   const { error } = await supabase.from("audits").upsert(
     {
       lead_id: leadId,
@@ -48,7 +84,7 @@ export async function upsertAudit(
       score,
       status,
       summary: parsed.data.summary || null,
-      details: { issues: issuesList },
+      details: { issues: issuesList, ...(existingUrl ? { url: existingUrl } : {}) },
     },
     { onConflict: "lead_id,category" }
   );
@@ -57,14 +93,109 @@ export async function upsertAudit(
     return { error: error.message };
   }
 
-  // audit_completed has no DB trigger -- log it here, mirroring status_changed in leads.actions.ts.
-  await supabase.from("activities").insert({
-    lead_id: leadId,
-    actor_id: user?.id ?? null,
-    type: "audit_completed",
-    description: `Website audit updated: ${AUDIT_CATEGORY_CONFIG[category].label}`,
-    metadata: { category, score },
-  });
+  await logAuditActivity(
+    supabase,
+    leadId,
+    user?.id ?? null,
+    `Website audit updated: ${AUDIT_CATEGORY_CONFIG[category].label}`,
+    { category, score }
+  );
+
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/website-audit");
+  return { success: true };
+}
+
+// Categories PageSpeed Insights can genuinely measure. "cta" and "trust"
+// have no automated equivalent and are intentionally left out -- they
+// stay manual-entry-only via upsertAudit so nothing gets a fabricated score.
+export async function runWebsiteAudit(
+  leadId: string,
+  formData: FormData
+): Promise<AuditActionState> {
+  const parsed = runAuditSchema.safeParse({ url: formData.get("url") ?? "" });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid URL" };
+  }
+
+  let result;
+  try {
+    result = await runPageSpeedAudit(parsed.data.url);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to run the audit" };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const rows: {
+    category: AuditCategory;
+    score: number | null;
+    issues: string[];
+    summaryLabel: string;
+  }[] = [
+    {
+      category: "performance",
+      score: result.desktop.performanceScore,
+      issues: result.desktop.performanceIssues,
+      summaryLabel: "Desktop Lighthouse performance score",
+    },
+    {
+      category: "mobile",
+      score: result.mobile.performanceScore,
+      issues: result.mobile.performanceIssues,
+      summaryLabel: "Mobile Lighthouse performance score",
+    },
+    {
+      category: "speed",
+      score: result.mobile.speedIndexScore,
+      issues: [],
+      summaryLabel: "Mobile Speed Index score",
+    },
+    {
+      category: "ux",
+      score: result.mobile.accessibilityScore,
+      issues: result.mobile.accessibilityIssues,
+      summaryLabel: "Mobile Lighthouse accessibility score (used as an automated UX proxy)",
+    },
+    {
+      category: "technical_issues",
+      score: result.mobile.bestPracticesScore,
+      issues: result.mobile.bestPracticesIssues,
+      summaryLabel: "Mobile Lighthouse best-practices score",
+    },
+  ];
+
+  const errors: string[] = [];
+  for (const row of rows) {
+    const status = deriveStatus(row.score);
+    const { error } = await supabase.from("audits").upsert(
+      {
+        lead_id: leadId,
+        category: row.category,
+        score: row.score,
+        status,
+        summary: `${row.summaryLabel} for ${parsed.data.url}, via Google PageSpeed Insights.`,
+        details: { url: parsed.data.url, issues: row.issues },
+      },
+      { onConflict: "lead_id,category" }
+    );
+    if (error) errors.push(error.message);
+  }
+
+  if (errors.length > 0) {
+    return { error: errors[0] };
+  }
+
+  await logAuditActivity(
+    supabase,
+    leadId,
+    user?.id ?? null,
+    `Website audit run via PageSpeed Insights (${parsed.data.url})`,
+    { url: parsed.data.url }
+  );
 
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/website-audit");

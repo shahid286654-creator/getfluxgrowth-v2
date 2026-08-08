@@ -13,3 +13,20 @@ export const auditSchema = z.object({
 });
 
 export type AuditInput = z.infer<typeof auditSchema>;
+
+export const runAuditSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .min(1, "Enter a website URL")
+    .refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "Enter a valid URL, e.g. https://example.com"),
+});
+
+export type RunAuditInput = z.infer<typeof runAuditSchema>;
