@@ -46,6 +46,7 @@ function EditableBadge({
         render={
           <Badge
             variant="outline"
+            render={<button type="button" />}
             className={cn(
               "cursor-pointer border-dashed outline-none transition-opacity hover:opacity-75 focus-visible:ring-2 focus-visible:ring-ring",
               badgeClassName
