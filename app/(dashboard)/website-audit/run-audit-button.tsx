@@ -14,13 +14,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { runWebsiteAudit } from "@/lib/actions/audits.actions";
 
 export type AuditableLead = {
@@ -43,9 +36,9 @@ export function RunAuditButton({ leads }: { leads: AuditableLead[] }) {
 
   const selectedLead = useMemo(() => leads.find((l) => l.id === leadId), [leads, leadId]);
 
-  function handleLeadChange(nextId: string | null) {
+  function handleLeadChange(nextId: string) {
     const lead = leads.find((l) => l.id === nextId);
-    setLeadId(nextId ?? "");
+    setLeadId(nextId);
     setUrl(lead?.website ?? "");
     setError(null);
   }
@@ -99,18 +92,27 @@ export function RunAuditButton({ leads }: { leads: AuditableLead[] }) {
               <label className="text-sm font-medium text-foreground" htmlFor="run-audit-lead">
                 Lead
               </label>
-              <Select value={leadId} onValueChange={handleLeadChange} disabled={isPending}>
-                <SelectTrigger id="run-audit-lead">
-                  <SelectValue placeholder="Select a lead..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {leads.map((lead) => (
-                    <SelectItem key={lead.id} value={lead.id}>
-                      {lead.company_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Plain native <select> here (not the styled Select primitive used
+                  elsewhere in the app) -- this dialog needs nothing beyond a basic
+                  picker, and a native control gives universally reliable click/
+                  keyboard/touch behavior without any custom pointer-event wiring. */}
+              <select
+                id="run-audit-lead"
+                value={leadId}
+                onChange={(e) => handleLeadChange(e.target.value)}
+                disabled={isPending}
+                required
+                className="flex h-8 w-full items-center rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+              >
+                <option value="" disabled>
+                  Select a lead...
+                </option>
+                {leads.map((lead) => (
+                  <option key={lead.id} value={lead.id}>
+                    {lead.company_name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-1.5">
