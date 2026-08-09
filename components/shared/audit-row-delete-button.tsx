@@ -12,9 +12,9 @@ export function AuditRowDeleteButton({
   deleteAction,
 }: {
   id: string;
-  leadId: string;
+  leadId: string | null;
   label: string;
-  deleteAction: (id: string, leadId: string) => Promise<void>;
+  deleteAction: (id: string, leadId: string | null) => Promise<void>;
 }) {
   const router = useRouter();
   const { open, setOpen } = useConfirmDialog();

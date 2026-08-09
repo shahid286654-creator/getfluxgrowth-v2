@@ -147,7 +147,8 @@ comment on column public.leads.source is 'Origin of the lead, e.g. manual, impor
 
 create table public.audits (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references public.leads (id) on delete cascade,
+  lead_id uuid references public.leads (id) on delete cascade,
+  owner_id uuid references public.profiles (id) on delete cascade,
   category audit_category not null,
   score integer check (score between 0 and 100),
   status score_status not null default 'needs_improvement',
@@ -158,14 +159,17 @@ create table public.audits (
   unique (lead_id, category)
 );
 
-comment on table public.audits is 'Website audit findings per lead, one row per audit_category.';
+comment on table public.audits is 'Website audit findings, one row per audit_category. Either lead-linked (lead_id set) or a URL-only manual audit (lead_id null, owner_id set).';
+comment on column public.audits.lead_id is 'Null for URL-only manual audits not tied to a lead.';
+comment on column public.audits.owner_id is 'Set only for lead-less audits; lead-linked audits derive ownership via lead_id instead.';
 comment on column public.audits.details is 'Flexible structured findings for the category, e.g. { "issues": [...] }.';
 
 -- SEO Audit: one row per lead per category.
 
 create table public.seo_audits (
   id uuid primary key default gen_random_uuid(),
-  lead_id uuid not null references public.leads (id) on delete cascade,
+  lead_id uuid references public.leads (id) on delete cascade,
+  owner_id uuid references public.profiles (id) on delete cascade,
   category seo_audit_category not null,
   score integer check (score between 0 and 100),
   status score_status not null default 'needs_improvement',
@@ -176,7 +180,9 @@ create table public.seo_audits (
   unique (lead_id, category)
 );
 
-comment on table public.seo_audits is 'SEO audit findings per lead, one row per seo_audit_category.';
+comment on table public.seo_audits is 'SEO audit findings, one row per seo_audit_category. Either lead-linked (lead_id set) or a URL-only manual audit (lead_id null, owner_id set).';
+comment on column public.seo_audits.lead_id is 'Null for URL-only manual audits not tied to a lead.';
+comment on column public.seo_audits.owner_id is 'Set only for lead-less audits; lead-linked audits derive ownership via lead_id instead.';
 
 -- Identified automation/AI opportunities per lead. Kept separate from
 -- `activities` (an append-only event log) since opportunities are
@@ -459,34 +465,38 @@ create policy "leads_delete_own"
 
 -- child tables scoped via lead ownership ------------------------------------
 
-create policy "audits_all_via_lead_owner"
+create policy "audits_all_via_owner"
   on public.audits for all
   using (
-    exists (
+    (lead_id is not null and exists (
       select 1 from public.leads l
       where l.id = audits.lead_id and l.owner_id = auth.uid ()
-    )
+    ))
+    or (lead_id is null and owner_id = auth.uid ())
   )
   with check (
-    exists (
+    (lead_id is not null and exists (
       select 1 from public.leads l
       where l.id = audits.lead_id and l.owner_id = auth.uid ()
-    )
+    ))
+    or (lead_id is null and owner_id = auth.uid ())
   );
 
-create policy "seo_audits_all_via_lead_owner"
+create policy "seo_audits_all_via_owner"
   on public.seo_audits for all
   using (
-    exists (
+    (lead_id is not null and exists (
       select 1 from public.leads l
       where l.id = seo_audits.lead_id and l.owner_id = auth.uid ()
-    )
+    ))
+    or (lead_id is null and owner_id = auth.uid ())
   )
   with check (
-    exists (
+    (lead_id is not null and exists (
       select 1 from public.leads l
       where l.id = seo_audits.lead_id and l.owner_id = auth.uid ()
-    )
+    ))
+    or (lead_id is null and owner_id = auth.uid ())
   );
 
 create policy "ai_opportunities_all_via_lead_owner"

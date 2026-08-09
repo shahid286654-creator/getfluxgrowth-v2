@@ -156,7 +156,8 @@ export interface Database {
       audits: {
         Row: {
           id: string;
-          lead_id: string;
+          lead_id: string | null;
+          owner_id: string | null;
           category: AuditCategory;
           score: number | null;
           status: ScoreStatus;
@@ -167,7 +168,8 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          lead_id: string;
+          lead_id?: string | null;
+          owner_id?: string | null;
           category: AuditCategory;
           score?: number | null;
           status?: ScoreStatus;
@@ -185,12 +187,20 @@ export interface Database {
             referencedRelation: "leads";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "audits_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
         ];
       };
       seo_audits: {
         Row: {
           id: string;
-          lead_id: string;
+          lead_id: string | null;
+          owner_id: string | null;
           category: SeoAuditCategory;
           score: number | null;
           status: ScoreStatus;
@@ -201,7 +211,8 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          lead_id: string;
+          lead_id?: string | null;
+          owner_id?: string | null;
           category: SeoAuditCategory;
           score?: number | null;
           status?: ScoreStatus;
@@ -217,6 +228,13 @@ export interface Database {
             columns: ["lead_id"];
             isOneToOne: false;
             referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "seo_audits_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];

@@ -109,8 +109,14 @@ export async function upsertAudit(
 // Categories PageSpeed Insights can genuinely measure. "cta" and "trust"
 // have no automated equivalent and are intentionally left out -- they
 // stay manual-entry-only via upsertAudit so nothing gets a fabricated score.
+//
+// leadId is optional: pass a lead's id to attach the run to that lead (the
+// existing behavior, unchanged), or null to run a standalone "Manual/URL
+// Audit" that isn't tied to any lead. Lead-less rows are scoped to the
+// current user via owner_id instead of via a lead, so they still can't be
+// seen by anyone else.
 export async function runWebsiteAudit(
-  leadId: string,
+  leadId: string | null,
   formData: FormData
 ): Promise<AuditActionState> {
   const parsed = runAuditSchema.safeParse({ url: formData.get("url") ?? "" });
@@ -118,17 +124,24 @@ export async function runWebsiteAudit(
     return { error: parsed.error.issues[0]?.message ?? "Invalid URL" };
   }
 
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!leadId && !user) {
+    return { error: "You must be signed in to run a manual audit." };
+  }
+  const ownerFields = leadId
+    ? { lead_id: leadId, owner_id: null as string | null }
+    : { lead_id: null as string | null, owner_id: user!.id };
+
   let result;
   try {
     result = await runPageSpeedAudit(parsed.data.url);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to run the audit" };
   }
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   const rows: {
     category: AuditCategory;
@@ -173,7 +186,7 @@ export async function runWebsiteAudit(
     const status = deriveStatus(row.score);
     const { error } = await supabase.from("audits").upsert(
       {
-        lead_id: leadId,
+        ...ownerFields,
         category: row.category,
         score: row.score,
         status,
@@ -193,7 +206,7 @@ export async function runWebsiteAudit(
     const seoStatus = deriveStatus(result.desktop.seoScore);
     const { error } = await supabase.from("seo_audits").upsert(
       {
-        lead_id: leadId,
+        ...ownerFields,
         category: "technical_seo",
         score: result.desktop.seoScore,
         status: seoStatus,
@@ -209,36 +222,40 @@ export async function runWebsiteAudit(
     return { error: errors[0] };
   }
 
-  await logAuditActivity(
-    supabase,
-    leadId,
-    user?.id ?? null,
-    `Website audit run via PageSpeed Insights (${parsed.data.url})`,
-    { url: parsed.data.url }
-  );
+  // The Activity feed is per-lead, so there's nothing meaningful to log
+  // for a lead-less manual/URL audit.
+  if (leadId) {
+    await logAuditActivity(
+      supabase,
+      leadId,
+      user?.id ?? null,
+      `Website audit run via PageSpeed Insights (${parsed.data.url})`,
+      { url: parsed.data.url }
+    );
+    revalidatePath(`/leads/${leadId}`);
+  }
 
-  revalidatePath(`/leads/${leadId}`);
   revalidatePath("/website-audit");
   revalidatePath("/seo-audit");
   return { success: true };
 }
 
-export async function deleteAudit(id: string, leadId: string) {
+export async function deleteAudit(id: string, leadId: string | null) {
   const supabase = await createClient();
   const { error } = await supabase.from("audits").delete().eq("id", id);
   if (error) {
     throw new Error(error.message);
   }
   revalidatePath("/website-audit");
-  revalidatePath(`/leads/${leadId}`);
+  if (leadId) revalidatePath(`/leads/${leadId}`);
 }
 
-export async function deleteSeoAudit(id: string, leadId: string) {
+export async function deleteSeoAudit(id: string, leadId: string | null) {
   const supabase = await createClient();
   const { error } = await supabase.from("seo_audits").delete().eq("id", id);
   if (error) {
     throw new Error(error.message);
   }
   revalidatePath("/seo-audit");
-  revalidatePath(`/leads/${leadId}`);
+  if (leadId) revalidatePath(`/leads/${leadId}`);
 }

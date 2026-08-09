@@ -4,8 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/layout/page-header";
 import { AuditOverview, type AuditOverviewRow } from "@/components/features/audit-overview";
 import { LeadAuditResultsTable, type LeadAuditResultRow } from "@/components/features/lead-audit-results-table";
+import { ManualAuditResults, type ManualAuditRow } from "@/components/features/manual-audit-results";
 import { AUDIT_CATEGORY_CONFIG } from "@/lib/constants/audit-categories";
-import { deleteAudit } from "@/lib/actions/audits.actions";
+import { SEO_AUDIT_CATEGORY_CONFIG } from "@/lib/constants/seo-audit-categories";
+import { deleteAudit, deleteSeoAudit } from "@/lib/actions/audits.actions";
 import { RunAuditButton, type AuditableLead } from "./run-audit-button";
 import type { Audit, ScoreStatus, SeoAudit } from "@/types";
 
@@ -20,12 +22,31 @@ function bucketStatus(score: number | null): ScoreStatus | null {
   return "poor";
 }
 
+function getAuditedUrl(details: Audit["details"]): string | null {
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const url = (details as { url?: unknown }).url;
+    return typeof url === "string" ? url : null;
+  }
+  return null;
+}
+
 export default async function WebsiteAuditPage() {
   const supabase = await createClient();
-  const [{ data: audits }, { data: seoAudits }, { data: leads }] = await Promise.all([
+  const [
+    { data: audits },
+    { data: seoAudits },
+    { data: leads },
+    { data: manualAudits },
+    { data: manualSeoAudits },
+  ] = await Promise.all([
     supabase.from("audits").select("*, leads!inner(company_name)").order("score", { ascending: true }),
-    supabase.from("seo_audits").select("*").eq("category", "technical_seo"),
+    supabase.from("seo_audits").select("*").eq("category", "technical_seo").not("lead_id", "is", null),
     supabase.from("leads").select("id, company_name, website").order("company_name"),
+    // Manual/URL audits -- no lead at all, scoped to the current user via
+    // owner_id (RLS enforces this; the is("lead_id", null) filter here is
+    // just so we don't also pull in every lead-linked row).
+    supabase.from("audits").select("*").is("lead_id", null).order("updated_at", { ascending: false }),
+    supabase.from("seo_audits").select("*").is("lead_id", null).order("updated_at", { ascending: false }),
   ]);
 
   const rows: AuditOverviewRow[] = ((audits ?? []) as AuditRow[]).map((audit) => ({
@@ -47,11 +68,14 @@ export default async function WebsiteAuditPage() {
     website: lead.website,
   }));
 
-  const seoByLead = new Map<string, SeoAudit>((seoAudits ?? []).map((a) => [a.lead_id, a]));
+  const seoByLead = new Map<string, SeoAudit>(
+    (seoAudits ?? []).filter((a) => a.lead_id).map((a) => [a.lead_id as string, a])
+  );
   const performanceByLead = new Map<string, Audit>();
   const accessibilityByLead = new Map<string, Audit>();
   const bestPracticesByLead = new Map<string, Audit>();
   for (const audit of (audits ?? []) as Audit[]) {
+    if (!audit.lead_id) continue;
     if (audit.category === "performance") performanceByLead.set(audit.lead_id, audit);
     if (audit.category === "ux") accessibilityByLead.set(audit.lead_id, audit);
     if (audit.category === "technical_issues") bestPracticesByLead.set(audit.lead_id, audit);
@@ -92,6 +116,27 @@ export default async function WebsiteAuditPage() {
     })
     .filter((row) => row.lastAudited !== null);
 
+  const manualRows: ManualAuditRow[] = [
+    ...((manualAudits ?? []) as Audit[]).map((audit) => ({
+      id: audit.id,
+      source: "audits" as const,
+      url: getAuditedUrl(audit.details),
+      categoryLabel: AUDIT_CATEGORY_CONFIG[audit.category].label,
+      score: audit.score,
+      status: audit.status,
+      updatedAt: audit.updated_at,
+    })),
+    ...((manualSeoAudits ?? []) as SeoAudit[]).map((audit) => ({
+      id: audit.id,
+      source: "seo_audits" as const,
+      url: getAuditedUrl(audit.details),
+      categoryLabel: SEO_AUDIT_CATEGORY_CONFIG[audit.category].label,
+      score: audit.score,
+      status: audit.status,
+      updatedAt: audit.updated_at,
+    })),
+  ].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
   return (
     <>
       <PageHeader
@@ -101,6 +146,11 @@ export default async function WebsiteAuditPage() {
       />
       <div className="space-y-8">
         <LeadAuditResultsTable rows={resultRows} />
+        <ManualAuditResults
+          rows={manualRows}
+          deleteAudit={deleteAudit}
+          deleteSeoAudit={deleteSeoAudit}
+        />
         <AuditOverview
           rows={rows}
           emptyIcon={Gauge}

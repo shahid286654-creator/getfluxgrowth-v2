@@ -11,7 +11,7 @@ import type { ScoreStatus } from "@/types";
 
 export type AuditOverviewRow = {
   id: string;
-  lead_id: string;
+  lead_id: string | null;
   company_name: string;
   category_label: string;
   score: number | null;
@@ -29,7 +29,7 @@ export function AuditOverview({
   emptyIcon: LucideIcon;
   emptyTitle: string;
   emptyDescription: string;
-  deleteAction: (id: string, leadId: string) => Promise<void>;
+  deleteAction: (id: string, leadId: string | null) => Promise<void>;
 }) {
   if (rows.length === 0) {
     return <EmptyState icon={emptyIcon} title={emptyTitle} description={emptyDescription} />;
