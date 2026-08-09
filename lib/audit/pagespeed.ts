@@ -36,6 +36,8 @@ export type PageSpeedStrategyResult = {
   accessibilityIssues: string[];
   bestPracticesScore: number | null;
   bestPracticesIssues: string[];
+  seoScore: number | null;
+  seoIssues: string[];
   speedIndexScore: number | null;
 };
 
@@ -67,6 +69,7 @@ async function fetchPageSpeed(
   params.append("category", "performance");
   params.append("category", "accessibility");
   params.append("category", "best-practices");
+  params.append("category", "seo");
 
   const apiKey = process.env.GOOGLE_PAGESPEED_API_KEY?.trim();
   if (apiKey) params.set("key", apiKey);
@@ -104,6 +107,8 @@ async function fetchPageSpeed(
     accessibilityIssues: collectFailingAudits(categories.accessibility?.auditRefs, audits),
     bestPracticesScore: toScore(categories["best-practices"]?.score),
     bestPracticesIssues: collectFailingAudits(categories["best-practices"]?.auditRefs, audits),
+    seoScore: toScore(categories.seo?.score),
+    seoIssues: collectFailingAudits(categories.seo?.auditRefs, audits),
     speedIndexScore: toScore(audits["speed-index"]?.score),
   };
 }

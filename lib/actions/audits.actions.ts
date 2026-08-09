@@ -185,6 +185,26 @@ export async function runWebsiteAudit(
     if (error) errors.push(error.message);
   }
 
+  // SEO score has its own existing table (seo_audits) rather than the
+  // website audits table -- "technical_seo" is the closest fit for what
+  // Lighthouse's SEO category actually checks (crawlability, indexability,
+  // mobile-friendliness, structured data).
+  {
+    const seoStatus = deriveStatus(result.desktop.seoScore);
+    const { error } = await supabase.from("seo_audits").upsert(
+      {
+        lead_id: leadId,
+        category: "technical_seo",
+        score: result.desktop.seoScore,
+        status: seoStatus,
+        summary: `Desktop Lighthouse SEO score for ${parsed.data.url}, via Google PageSpeed Insights.`,
+        details: { url: parsed.data.url, issues: result.desktop.seoIssues },
+      },
+      { onConflict: "lead_id,category" }
+    );
+    if (error) errors.push(error.message);
+  }
+
   if (errors.length > 0) {
     return { error: errors[0] };
   }
@@ -199,6 +219,7 @@ export async function runWebsiteAudit(
 
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/website-audit");
+  revalidatePath("/seo-audit");
   return { success: true };
 }
 

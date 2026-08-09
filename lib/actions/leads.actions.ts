@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { leadSchema } from "@/lib/validations/leads";
+import { runWebsiteAudit } from "@/lib/actions/audits.actions";
 import type { LeadStatus, PipelineStage } from "@/types";
 
 export type LeadActionState = {
@@ -62,6 +63,18 @@ export async function createLead(
 
   if (error || !data) {
     return { error: error?.message ?? "Failed to create lead" };
+  }
+
+  // Best-effort automatic audit when the new lead has a website -- never
+  // block or fail lead creation if PageSpeed Insights errors out.
+  if (parsed.data.website) {
+    try {
+      const auditForm = new FormData();
+      auditForm.set("url", parsed.data.website);
+      await runWebsiteAudit(data.id, auditForm);
+    } catch {
+      // Swallow -- the lead is already created; the audit can be re-run manually.
+    }
   }
 
   revalidatePath("/leads");
